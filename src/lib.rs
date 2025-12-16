@@ -1,6 +1,4 @@
-#![feature(proc_macro_span)]
-
-use std::fs;
+use std::{env, fs};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use proc_macro::{TokenStream};
@@ -59,20 +57,12 @@ pub fn u8g2_font(input: TokenStream) -> TokenStream {
         weight,
     } = parse_macro_input!(input as FontInput);
 
-    let span = proc_macro::Span::call_site();
-    let source_file = span.source_file();
-    let source_path = source_file.path();
-    let base_dir = source_path
-        .parent()
-        .expect("Source file should have a parent directory");
-
-    let font_path: PathBuf = base_dir.join(path.value());
+    let font_path= PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join(path.value());
     if !font_path.exists() {
         return syn::Error::new(
             path.span(),
             format!(
-                "Font file does not exist (relative to {}): {}",
-                source_path.display(),
+                "Font file does not exist at{}",
                 font_path.display()
             ),
         )

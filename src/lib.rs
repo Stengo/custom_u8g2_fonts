@@ -16,6 +16,7 @@ enum CharSpec {
     Numbers,
     LowerCase,
     UpperCase,
+    Punctuation,
 }
 
 impl Parse for CharSpec {
@@ -26,6 +27,7 @@ impl Parse for CharSpec {
                 "Numbers" => return Ok(CharSpec::Numbers),
                 "LowerCase" => return Ok(CharSpec::LowerCase),
                 "UpperCase" => return Ok(CharSpec::UpperCase),
+                "Punctuation" => return Ok(CharSpec::Punctuation),
                 _ => return Err(input.error(format!("Unknown character set identifier: {}", ident))),
             }
         } 
@@ -35,7 +37,7 @@ impl Parse for CharSpec {
             return Ok(CharSpec::String(lit_str.value()));
         }
 
-        Err(input.error("Expected an identifier (Numbers, LowerCase, UpperCase) or a string literal (\"abc\")."))
+        Err(input.error("Expected an identifier (Numbers, LowerCase, UpperCase, Punctuation) or a string literal (\"abc\")."))
     }
 }
 
@@ -133,6 +135,9 @@ fn specs_to_unicode_code_points(specs: &[CharSpec]) -> String {
             }
             CharSpec::UpperCase => {
                 ('A'..='Z').for_each(|c| { collected_chars.insert(c); });
+            }
+            CharSpec::Punctuation => {
+                ".,'\"?!:;()-".chars().for_each(|c| { collected_chars.insert(c); });
             }
         }
     }

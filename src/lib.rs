@@ -164,22 +164,37 @@ fn generate_bdf_from_otf(
     size_value: &str,
     unicode_code_points: &str,
 ) -> syn::Result<Vec<u8>> {
-    Command::new("otf2bdf")
+    let output = Command::new("otf2bdf")
         .arg("-p")
         .arg(size_value)
         .arg("-l")
         .arg(unicode_code_points)
         .arg(font_path)
         .output()
-        .map_err(|e| syn::Error::new_spanned(font_path.to_str(), format!("Failed to run otf2bdf: {}", e)))
-        .map(|output| output.stdout)
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                syn::Error::new_spanned(font_path.to_str(), "Failed to run `otf2bdf`. Is it installed and in your PATH?")
+            } else {
+                syn::Error::new_spanned(font_path.to_str(), format!("Failed to run `otf2bdf`: {}", e))
+            }
+        })?;
+
+    if !output.status.success() {
+        let stderr_msg = String::from_utf8_lossy(&output.stderr);
+        return Err(syn::Error::new_spanned(
+            font_path.to_str(),
+            format!("`otf2bdf` command failed: {}", stderr_msg.trim())
+        ));
+    }
+
+    Ok(output.stdout)
 }
 
 fn generate_font_bytes_from_bdf(bdf_file_path: &Path) -> syn::Result<Vec<u8>> {
     let bdfconv_path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tools/bdfconv/bdfconv");
 
-    Command::new(bdfconv_path)
+    let output = Command::new(&bdfconv_path)
         .arg("-f")
         .arg("1")
         .arg("-m")
@@ -187,8 +202,23 @@ fn generate_font_bytes_from_bdf(bdf_file_path: &Path) -> syn::Result<Vec<u8>> {
         .arg("-binary")
         .arg(bdf_file_path)
         .output()
-        .map_err(|e| syn::Error::new_spanned(bdf_file_path.to_str(), format!("Failed to run bdfconv: {}", e)))
-        .map(|output| output.stdout)
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                 syn::Error::new_spanned(bdf_file_path.to_str(), format!("Failed to run `bdfconv` at '{}'. Check that the executable exists.", bdfconv_path.display()))
+            } else {
+                 syn::Error::new_spanned(bdf_file_path.to_str(), format!("Failed to run `bdfconv`: {}", e))
+            }
+        })?;
+    
+    if !output.status.success() {
+        let stderr_msg = String::from_utf8_lossy(&output.stderr);
+        return Err(syn::Error::new_spanned(
+            bdf_file_path.to_str(),
+            format!("`bdfconv` command failed: {}", stderr_msg.trim())
+        ));
+    }
+
+    Ok(output.stdout)
 }
 
 fn generate_output_tokens(name: &Ident, font_bytes: &[u8]) -> syn::Result<TokenStream> {

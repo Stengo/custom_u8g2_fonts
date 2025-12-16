@@ -97,6 +97,8 @@ pub fn u8g2_font(input: TokenStream) -> TokenStream {
         .expect("Failed to run bdfconv")
         .stdout;
 
+    fs::remove_file(bdf_file_path).expect("Failed to remove temporary .bdf file");
+
     let byte_literal = Literal::byte_string(&output);
 
     let struct_name = Ident::new(

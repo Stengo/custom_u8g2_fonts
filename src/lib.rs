@@ -11,7 +11,7 @@ use syn::{
 };
 
 #[derive(Debug)]
-enum CharSpec {
+enum CharacterSet {
     String(String),
     Numbers,
     LowerCase,
@@ -19,22 +19,22 @@ enum CharSpec {
     Punctuation,
 }
 
-impl Parse for CharSpec {
+impl Parse for CharacterSet {
     fn parse(input: ParseStream) -> Result<Self> {
         if input.peek(Ident) {
             let ident: Ident = input.parse()?;
             match ident.to_string().as_str() {
-                "Numbers" => return Ok(CharSpec::Numbers),
-                "LowerCase" => return Ok(CharSpec::LowerCase),
-                "UpperCase" => return Ok(CharSpec::UpperCase),
-                "Punctuation" => return Ok(CharSpec::Punctuation),
+                "Numbers" => return Ok(CharacterSet::Numbers),
+                "LowerCase" => return Ok(CharacterSet::LowerCase),
+                "UpperCase" => return Ok(CharacterSet::UpperCase),
+                "Punctuation" => return Ok(CharacterSet::Punctuation),
                 _ => return Err(input.error(format!("Unknown character set identifier: {}", ident))),
             }
         } 
         
         if input.peek(LitStr) {
             let lit_str: LitStr = input.parse()?;
-            return Ok(CharSpec::String(lit_str.value()));
+            return Ok(CharacterSet::String(lit_str.value()));
         }
 
         Err(input.error("Expected an identifier (Numbers, LowerCase, UpperCase, Punctuation) or a string literal (\"abc\")."))
@@ -45,7 +45,7 @@ struct FontInput {
     path: LitStr,
     name: Ident,
     size: LitInt,
-    specs: Vec<CharSpec>,
+    specs: Vec<CharacterSet>,
 }
 
 impl Parse for FontInput {
@@ -64,7 +64,7 @@ impl Parse for FontInput {
                 "name" => name = Some(input.parse()?),
                 "size" => size = Some(input.parse()?),
                 "chars" => {
-                    let list = input.parse_terminated(CharSpec::parse, Token![,])?;
+                    let list = input.parse_terminated(CharacterSet::parse, Token![,])?;
                     specs.extend(list.into_iter());
                 },
                 _ => return Err(input.error("Unknown argument")),
@@ -101,7 +101,7 @@ fn generate_font_data(
     path: LitStr,
     name: Ident,
     size: LitInt,
-    specs: Vec<CharSpec>,
+    specs: Vec<CharacterSet>,
 ) -> syn::Result<TokenStream> {
     let font_path = resolve_font_path(&path)?;
     let size_value = size.base10_digits();
@@ -119,24 +119,24 @@ fn generate_font_data(
     generate_output_tokens(&name, &font_bytes)
 }
 
-fn specs_to_unicode_code_points(specs: &[CharSpec]) -> String {
+fn specs_to_unicode_code_points(specs: &[CharacterSet]) -> String {
     let mut collected_chars = std::collections::BTreeSet::new();
 
     for spec in specs {
         match spec {
-            CharSpec::String(s) => {
+            CharacterSet::String(s) => {
                 s.chars().for_each(|c| { collected_chars.insert(c); });
             }
-            CharSpec::Numbers => {
+            CharacterSet::Numbers => {
                 ('0'..='9').for_each(|c| { collected_chars.insert(c); });
             }
-            CharSpec::LowerCase => {
+            CharacterSet::LowerCase => {
                 ('a'..='z').for_each(|c| { collected_chars.insert(c); });
             }
-            CharSpec::UpperCase => {
+            CharacterSet::UpperCase => {
                 ('A'..='Z').for_each(|c| { collected_chars.insert(c); });
             }
-            CharSpec::Punctuation => {
+            CharacterSet::Punctuation => {
                 ".,'\"?!:;()-".chars().for_each(|c| { collected_chars.insert(c); });
             }
         }

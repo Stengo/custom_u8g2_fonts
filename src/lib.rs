@@ -14,6 +14,7 @@ struct FontInput {
     path: LitStr,
     name: Ident,
     size: LitInt,
+    chars: LitStr,
 }
 
 impl Parse for FontInput {
@@ -21,6 +22,7 @@ impl Parse for FontInput {
         let mut path = None;
         let mut name = None;
         let mut size = None;
+        let mut chars = None;
 
         while !input.is_empty() {
             let ident: Ident = input.parse()?;
@@ -30,6 +32,7 @@ impl Parse for FontInput {
                 "path" => path = Some(input.parse()?),
                 "name" => name = Some(input.parse()?),
                 "size" => size = Some(input.parse()?),
+                "chars" => chars = Some(input.parse()?),
                 _ => return Err(input.error("Unknown argument")),
             }
 
@@ -40,6 +43,7 @@ impl Parse for FontInput {
             path: path.ok_or_else(|| input.error("Missing `path`"))?,
             name: name.ok_or_else(|| input.error("Missing `name`"))?,
             size: size.ok_or_else(|| input.error("Missing `size`"))?,
+            chars: chars.ok_or_else(|| input.error("Missing `chars`"))?,
         })
     }
 }
@@ -50,6 +54,7 @@ pub fn u8g2_font(input: TokenStream) -> TokenStream {
         path,
         name,
         size,
+        chars,
     } = parse_macro_input!(input as FontInput);
 
     let font_path = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap())
@@ -58,10 +63,7 @@ pub fn u8g2_font(input: TokenStream) -> TokenStream {
     if !font_path.exists() {
         return syn::Error::new(
             path.span(),
-            format!(
-                "Font file does not exist at {}",
-                font_path.display()
-            ),
+            format!("Font file does not exist at {}", font_path.display()),
         )
         .to_compile_error()
         .into();
@@ -69,12 +71,15 @@ pub fn u8g2_font(input: TokenStream) -> TokenStream {
 
     let size_value = size.base10_digits();
 
+    let chars_value = chars.value();
+    let unicode_code_points = chars_to_unicode_code_points(&chars_value);
+
     let bdf_file_path: PathBuf = font_path.with_extension("bdf");
     let output = Command::new("otf2bdf")
         .arg("-p")
         .arg(size_value)
         .arg("-l")
-        .arg("48_58")
+        .arg(&unicode_code_points)
         .arg(&font_path)
         .output()
         .expect("Failed to run otf2bdf")
@@ -115,4 +120,8 @@ pub fn u8g2_font(input: TokenStream) -> TokenStream {
     };
 
     expanded.into()
+}
+
+fn chars_to_unicode_code_points(chars: &str) -> String {
+    chars.chars().map(|c| (c as u32).to_string()).collect::<Vec::<String>>().join(" ")
 }

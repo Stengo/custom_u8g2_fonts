@@ -2,6 +2,7 @@
 name = "custom_u8g2_fonts"
 version = "0.1.0"
 edition = "2024"
+build = "build.rs"
 
 [lib]
 proc-macro = true
@@ -13,4 +14,5 @@ syn = { version = "2", features = ["full"] }
 
 [dev-dependencies]
 macrotest = "1.0"
+trybuild = "1.0"
 u8g2-fonts = "0.7.2"

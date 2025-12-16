@@ -1,8 +1,10 @@
 #![feature(proc_macro_span)]
 
-use std::path::PathBuf;
-
-use proc_macro::TokenStream;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use proc_macro::{TokenStream};
+use proc_macro2::Literal;
 use quote::quote;
 use syn::{
     parse::{Parse, ParseStream},
@@ -60,20 +62,18 @@ pub fn u8g2_font(input: TokenStream) -> TokenStream {
     let span = proc_macro::Span::call_site();
     let source_file = span.source_file();
     let source_path = source_file.path();
-
     let base_dir = source_path
         .parent()
         .expect("Source file should have a parent directory");
 
-    let full_path: PathBuf = base_dir.join(path.value());
-
-    if !full_path.exists() {
+    let font_path: PathBuf = base_dir.join(path.value());
+    if !font_path.exists() {
         return syn::Error::new(
             path.span(),
             format!(
                 "Font file does not exist (relative to {}): {}",
                 source_path.display(),
-                full_path.display(),
+                font_path.display()
             ),
         )
         .to_compile_error()
@@ -83,8 +83,34 @@ pub fn u8g2_font(input: TokenStream) -> TokenStream {
     let size_value = size.base10_digits();
     let weight_value = weight.value();
 
+    let bdf_file_path: PathBuf = font_path.with_extension("bdf");
+    let output = Command::new("otf2bdf")
+        .arg("-p")
+        .arg(size_value)
+        .arg("-l")
+        .arg("48_58")
+        .arg(&font_path)
+        .output()
+        .expect("Failed to run otf2bdf")
+        .stdout;
+    fs::write(&bdf_file_path, &output).expect("Failed to write .bdf file");
+
+    let bdfconv_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tools/bdfconv/bdfconv");
+    let output = Command::new(bdfconv_path)
+        .arg("-f")
+        .arg("1")
+        .arg("-m")
+        .arg("32-127")
+        .arg("-binary")
+        .arg(&bdf_file_path)
+        .output()
+        .expect("Failed to run otf2bdf")
+        .stdout;
+    let byte_literal = Literal::byte_string(&output);
+
     let struct_name = Ident::new(
-        &format!("{name}{weight_value}{size_value}"),
+        &format!("{}{}{}", name, weight_value, size_value),
         name.span(),
     );
 
@@ -92,7 +118,7 @@ pub fn u8g2_font(input: TokenStream) -> TokenStream {
         pub struct #struct_name {}
 
         impl u8g2_fonts::Font for #struct_name {
-            const DATA: &'static [u8] = include_bytes!(#path);
+            const DATA: &'static [u8] = #byte_literal;
         }
     };
 

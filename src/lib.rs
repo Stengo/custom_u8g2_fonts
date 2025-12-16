@@ -57,69 +57,88 @@ pub fn u8g2_font(input: TokenStream) -> TokenStream {
         chars,
     } = parse_macro_input!(input as FontInput);
 
-    let font_path = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap())
-        .join(path.value());
+    match generate_font_data(path, name, size, chars) {
+        Ok(token_stream) => token_stream,
+        Err(error) => error.to_compile_error().into(),
+    }
+}
+
+fn generate_font_data(
+    path: LitStr,
+    name: Ident,
+    size: LitInt,
+    chars: LitStr,
+) -> syn::Result<TokenStream> {
+    let font_path = resolve_font_path(&path)?;
+    let size_value = size.base10_digits();
+    let unicode_code_points = chars_to_unicode_code_points(&chars.value());
+    let bdf_file_path = font_path.with_extension("bdf");
+
+    let bdf_output = generate_bdf_from_otf(&font_path, size_value, &unicode_code_points)?;
+    fs::write(&bdf_file_path, bdf_output).map_err(|e| syn::Error::new(path.span(), format!("Failed to write .bdf file: {}", e)))?;
+
+    let font_bytes = generate_font_bytes_from_bdf(&bdf_file_path)?;
+    fs::remove_file(&bdf_file_path).map_err(|e| syn::Error::new(path.span(), format!("Failed to remove temporary .bdf file: {}", e)))?;
+
+    generate_output_tokens(&name, &font_bytes)
+}
+
+fn resolve_font_path(path_lit: &LitStr) -> syn::Result<PathBuf> {
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR")
+        .map_err(|e| syn::Error::new(path_lit.span(), format!("CARGO_MANIFEST_DIR not set: {}", e)))?;
+    let font_path = PathBuf::from(manifest_dir).join(path_lit.value());
 
     if !font_path.exists() {
-        return syn::Error::new(
-            path.span(),
+        return Err(syn::Error::new(
+            path_lit.span(),
             format!("Font file does not exist at {}", font_path.display()),
-        )
-        .to_compile_error()
-        .into();
+        ));
     }
+    Ok(font_path)
+}
 
-    let size_value = size.base10_digits();
-
-    let chars_value = chars.value();
-    let unicode_code_points = chars_to_unicode_code_points(&chars_value);
-
-    let bdf_file_path: PathBuf = font_path.with_extension("bdf");
-    let output = Command::new("otf2bdf")
+fn generate_bdf_from_otf(
+    font_path: &Path,
+    size_value: &str,
+    unicode_code_points: &str,
+) -> syn::Result<Vec<u8>> {
+    Command::new("otf2bdf")
         .arg("-p")
         .arg(size_value)
         .arg("-l")
-        .arg(&unicode_code_points)
-        .arg(&font_path)
+        .arg(unicode_code_points)
+        .arg(font_path)
         .output()
-        .expect("Failed to run otf2bdf")
-        .stdout;
+        .map_err(|e| syn::Error::new_spanned(font_path.to_str(), format!("Failed to run otf2bdf: {}", e)))
+        .map(|output| output.stdout)
+}
 
-    fs::write(&bdf_file_path, &output)
-        .expect("Failed to write .bdf file");
-
+fn generate_font_bytes_from_bdf(bdf_file_path: &Path) -> syn::Result<Vec<u8>> {
     let bdfconv_path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tools/bdfconv/bdfconv");
 
-    let output = Command::new(bdfconv_path)
+    Command::new(bdfconv_path)
         .arg("-f")
         .arg("1")
         .arg("-m")
         .arg("32-127")
         .arg("-binary")
-        .arg(&bdf_file_path)
+        .arg(bdf_file_path)
         .output()
-        .expect("Failed to run bdfconv")
-        .stdout;
+        .map_err(|e| syn::Error::new_spanned(bdf_file_path.to_str(), format!("Failed to run bdfconv: {}", e)))
+        .map(|output| output.stdout)
+}
 
-    fs::remove_file(bdf_file_path).expect("Failed to remove temporary .bdf file");
-
-    let byte_literal = Literal::byte_string(&output);
-
-    let struct_name = Ident::new(
-        name.to_string().as_str(),
-        name.span(),
-    );
-
+fn generate_output_tokens(name: &Ident, font_bytes: &[u8]) -> syn::Result<TokenStream> {
+    let byte_literal = Literal::byte_string(font_bytes);
     let expanded = quote! {
-        pub struct #struct_name {}
+        pub struct #name {}
 
-        impl u8g2_fonts::Font for #struct_name {
+        impl u8g2_fonts::Font for #name {
             const DATA: &'static [u8] = #byte_literal;
         }
     };
-
-    expanded.into()
+    Ok(expanded.into())
 }
 
 fn chars_to_unicode_code_points(chars: &str) -> String {

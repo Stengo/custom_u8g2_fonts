@@ -1,7 +1,7 @@
 use std::{env, fs};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use proc_macro::{TokenStream};
+use proc_macro::TokenStream;
 use proc_macro2::Literal;
 use quote::quote;
 use syn::{
@@ -14,7 +14,6 @@ struct FontInput {
     path: LitStr,
     name: Ident,
     size: LitInt,
-    weight: LitStr,
 }
 
 impl Parse for FontInput {
@@ -22,7 +21,6 @@ impl Parse for FontInput {
         let mut path = None;
         let mut name = None;
         let mut size = None;
-        let mut weight = None;
 
         while !input.is_empty() {
             let ident: Ident = input.parse()?;
@@ -32,7 +30,6 @@ impl Parse for FontInput {
                 "path" => path = Some(input.parse()?),
                 "name" => name = Some(input.parse()?),
                 "size" => size = Some(input.parse()?),
-                "weight" => weight = Some(input.parse()?),
                 _ => return Err(input.error("Unknown argument")),
             }
 
@@ -43,7 +40,6 @@ impl Parse for FontInput {
             path: path.ok_or_else(|| input.error("Missing `path`"))?,
             name: name.ok_or_else(|| input.error("Missing `name`"))?,
             size: size.ok_or_else(|| input.error("Missing `size`"))?,
-            weight: weight.ok_or_else(|| input.error("Missing `weight`"))?,
         })
     }
 }
@@ -54,15 +50,16 @@ pub fn u8g2_font(input: TokenStream) -> TokenStream {
         path,
         name,
         size,
-        weight,
     } = parse_macro_input!(input as FontInput);
 
-    let font_path= PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join(path.value());
+    let font_path = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap())
+        .join(path.value());
+
     if !font_path.exists() {
         return syn::Error::new(
             path.span(),
             format!(
-                "Font file does not exist at{}",
+                "Font file does not exist at {}",
                 font_path.display()
             ),
         )
@@ -71,7 +68,6 @@ pub fn u8g2_font(input: TokenStream) -> TokenStream {
     }
 
     let size_value = size.base10_digits();
-    let weight_value = weight.value();
 
     let bdf_file_path: PathBuf = font_path.with_extension("bdf");
     let output = Command::new("otf2bdf")
@@ -83,10 +79,13 @@ pub fn u8g2_font(input: TokenStream) -> TokenStream {
         .output()
         .expect("Failed to run otf2bdf")
         .stdout;
-    fs::write(&bdf_file_path, &output).expect("Failed to write .bdf file");
+
+    fs::write(&bdf_file_path, &output)
+        .expect("Failed to write .bdf file");
 
     let bdfconv_path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tools/bdfconv/bdfconv");
+
     let output = Command::new(bdfconv_path)
         .arg("-f")
         .arg("1")
@@ -95,12 +94,13 @@ pub fn u8g2_font(input: TokenStream) -> TokenStream {
         .arg("-binary")
         .arg(&bdf_file_path)
         .output()
-        .expect("Failed to run otf2bdf")
+        .expect("Failed to run bdfconv")
         .stdout;
+
     let byte_literal = Literal::byte_string(&output);
 
     let struct_name = Ident::new(
-        &format!("{}{}{}", name, weight_value, size_value),
+        &format!("{}{}", name, size_value),
         name.span(),
     );
 

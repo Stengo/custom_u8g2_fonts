@@ -4,7 +4,7 @@ u8g2_font!(
     path = "../../../../tests/fonts/Nunito.ttf",
     name = Sample,
     size = 12,
-    chars = Numbers, ":"
+    chars = "0123456789:"
 );
 
 fn main() {

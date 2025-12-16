@@ -10,42 +10,11 @@ use syn::{
     Ident, LitInt, LitStr, Result, Token,
 };
 
-#[derive(Debug)]
-enum CharacterSet {
-    String(String),
-    Numbers,
-    LowerCase,
-    UpperCase,
-    Punctuation,
-}
-
-impl Parse for CharacterSet {
-    fn parse(input: ParseStream) -> Result<Self> {
-        if input.peek(Ident) {
-            let ident: Ident = input.parse()?;
-            match ident.to_string().as_str() {
-                "Numbers" => return Ok(CharacterSet::Numbers),
-                "LowerCase" => return Ok(CharacterSet::LowerCase),
-                "UpperCase" => return Ok(CharacterSet::UpperCase),
-                "Punctuation" => return Ok(CharacterSet::Punctuation),
-                _ => return Err(input.error(format!("Unknown character set identifier: {}", ident))),
-            }
-        } 
-        
-        if input.peek(LitStr) {
-            let lit_str: LitStr = input.parse()?;
-            return Ok(CharacterSet::String(lit_str.value()));
-        }
-
-        Err(input.error("Expected an identifier (Numbers, LowerCase, UpperCase, Punctuation) or a string literal (\"abc\")."))
-    }
-}
-
 struct FontInput {
     path: LitStr,
     name: Ident,
     size: LitInt,
-    specs: Vec<CharacterSet>,
+    chars: LitStr,
 }
 
 impl Parse for FontInput {
@@ -53,7 +22,7 @@ impl Parse for FontInput {
         let mut path = None;
         let mut name = None;
         let mut size = None;
-        let mut specs = Vec::new();
+        let mut chars = None;
 
         while !input.is_empty() {
             let ident: Ident = input.parse()?;
@@ -63,10 +32,7 @@ impl Parse for FontInput {
                 "path" => path = Some(input.parse()?),
                 "name" => name = Some(input.parse()?),
                 "size" => size = Some(input.parse()?),
-                "chars" => {
-                    let list = input.parse_terminated(CharacterSet::parse, Token![,])?;
-                    specs.extend(list.into_iter());
-                },
+                "chars" => chars = Some(input.parse()?),
                 _ => return Err(input.error("Unknown argument")),
             }
 
@@ -77,7 +43,7 @@ impl Parse for FontInput {
             path: path.ok_or_else(|| input.error("Missing `path`"))?,
             name: name.ok_or_else(|| input.error("Missing `name`"))?,
             size: size.ok_or_else(|| input.error("Missing `size`"))?,
-            specs,
+            chars: chars.ok_or_else(|| input.error("Missing `chars`"))?,
         })
     }
 }
@@ -88,10 +54,10 @@ pub fn u8g2_font(input: TokenStream) -> TokenStream {
         path,
         name,
         size,
-        specs,
+        chars,
     } = parse_macro_input!(input as FontInput);
 
-    match generate_font_data(path, name, size, specs) {
+    match generate_font_data(path, name, size, chars) {
         Ok(token_stream) => token_stream,
         Err(error) => error.to_compile_error().into(),
     }
@@ -101,12 +67,12 @@ fn generate_font_data(
     path: LitStr,
     name: Ident,
     size: LitInt,
-    specs: Vec<CharacterSet>,
+    chars: LitStr,
 ) -> syn::Result<TokenStream> {
     let font_path = resolve_font_path(&path)?;
     let size_value = size.base10_digits();
     
-    let unicode_code_points = specs_to_unicode_code_points(&specs);
+    let unicode_code_points = chars.value().chars().map(|c| c as u32).collect::<Vec<u32>>();
 
     let bdf_file_path = font_path.with_extension("bdf");
 
@@ -117,32 +83,6 @@ fn generate_font_data(
     fs::remove_file(&bdf_file_path).map_err(|e| syn::Error::new(path.span(), format!("Failed to remove temporary .bdf file: {}", e)))?;
 
     generate_output_tokens(&name, &font_bytes)
-}
-
-fn specs_to_unicode_code_points(specs: &[CharacterSet]) -> Vec<u32> {
-    let mut collected_chars = std::collections::BTreeSet::new();
-
-    for spec in specs {
-        match spec {
-            CharacterSet::String(s) => {
-                s.chars().for_each(|c| { collected_chars.insert(c); });
-            }
-            CharacterSet::Numbers => {
-                ('0'..='9').for_each(|c| { collected_chars.insert(c); });
-            }
-            CharacterSet::LowerCase => {
-                ('a'..='z').for_each(|c| { collected_chars.insert(c); });
-            }
-            CharacterSet::UpperCase => {
-                ('A'..='Z').for_each(|c| { collected_chars.insert(c); });
-            }
-            CharacterSet::Punctuation => {
-                ".,'\"?!:;()-".chars().for_each(|c| { collected_chars.insert(c); });
-            }
-        }
-    }
-    
-    collected_chars.iter().map(|&c| (c as u32)).collect::<Vec<u32>>()
 }
 
 fn resolve_font_path(path_lit: &LitStr) -> syn::Result<PathBuf> {

@@ -8,5 +8,5 @@ u8g2_font!(
 );
 
 fn main() {
-    let _ = Sample12 {};
+    let _ = Sample {};
 }

@@ -107,7 +107,7 @@ pub fn u8g2_font(input: TokenStream) -> TokenStream {
     let byte_literal = Literal::byte_string(&output);
 
     let struct_name = Ident::new(
-        &format!("{}{}", name, size_value),
+        name.to_string().as_str(),
         name.span(),
     );
 

@@ -121,7 +121,7 @@ fn generate_font_bytes_from_bdf(bdf_file_path: &Path) -> syn::Result<Vec<u8>> {
         .arg("-f")
         .arg("1")
         .arg("-m")
-        .arg("32-127")
+        .arg("32-255")
         .arg("-binary")
         .arg(bdf_file_path)
         .output()

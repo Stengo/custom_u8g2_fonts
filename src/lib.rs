@@ -113,13 +113,13 @@ fn generate_font_data(
     let bdf_output = generate_bdf_from_otf(&font_path, size_value, &unicode_code_points)?;
     fs::write(&bdf_file_path, bdf_output).map_err(|e| syn::Error::new(path.span(), format!("Failed to write .bdf file: {}", e)))?;
 
-    let font_bytes = generate_font_bytes_from_bdf(&bdf_file_path)?;
+    let font_bytes = generate_font_bytes_from_bdf(&bdf_file_path, &unicode_code_points)?;
     fs::remove_file(&bdf_file_path).map_err(|e| syn::Error::new(path.span(), format!("Failed to remove temporary .bdf file: {}", e)))?;
 
     generate_output_tokens(&name, &font_bytes)
 }
 
-fn specs_to_unicode_code_points(specs: &[CharacterSet]) -> String {
+fn specs_to_unicode_code_points(specs: &[CharacterSet]) -> Vec<u32> {
     let mut collected_chars = std::collections::BTreeSet::new();
 
     for spec in specs {
@@ -141,8 +141,8 @@ fn specs_to_unicode_code_points(specs: &[CharacterSet]) -> String {
             }
         }
     }
-
-    collected_chars.iter().map(|&c| (c as u32).to_string()).collect::<Vec<String>>().join(" ")
+    
+    collected_chars.iter().map(|&c| (c as u32)).collect::<Vec<u32>>()
 }
 
 fn resolve_font_path(path_lit: &LitStr) -> syn::Result<PathBuf> {
@@ -162,13 +162,13 @@ fn resolve_font_path(path_lit: &LitStr) -> syn::Result<PathBuf> {
 fn generate_bdf_from_otf(
     font_path: &Path,
     size_value: &str,
-    unicode_code_points: &str,
+    unicode_code_points: &Vec<u32>,
 ) -> syn::Result<Vec<u8>> {
     let output = Command::new("otf2bdf")
         .arg("-p")
         .arg(size_value)
         .arg("-l")
-        .arg(unicode_code_points)
+        .arg(unicode_code_points.iter().map(|c| c.to_string()).collect::<Vec<String>>().join(" "))
         .arg(font_path)
         .output()
         .map_err(|e| {
@@ -190,7 +190,7 @@ fn generate_bdf_from_otf(
     Ok(output.stdout)
 }
 
-fn generate_font_bytes_from_bdf(bdf_file_path: &Path) -> syn::Result<Vec<u8>> {
+fn generate_font_bytes_from_bdf(bdf_file_path: &Path, unicode_code_points: &Vec<u32>) -> syn::Result<Vec<u8>> {
     let bdfconv_path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tools/bdfconv/bdfconv");
 
@@ -198,7 +198,7 @@ fn generate_font_bytes_from_bdf(bdf_file_path: &Path) -> syn::Result<Vec<u8>> {
         .arg("-f")
         .arg("1")
         .arg("-m")
-        .arg("32-255")
+        .arg(unicode_code_points.iter().map(|c| c.to_string()).collect::<Vec<String>>().join(","))
         .arg("-binary")
         .arg(bdf_file_path)
         .output()
